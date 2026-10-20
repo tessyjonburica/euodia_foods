@@ -1,39 +1,69 @@
-import { NextResponse } from 'next/server';
-import bcrypt from 'bcryptjs';
-import { client } from '@/utils/sanity/client';
+import { createHash } from "node:crypto";
+import bcrypt from "bcryptjs";
+import { client } from "@/utils/sanity/client";
 
 export async function POST(req) {
+  let stage = "token_lookup";
   try {
     const { token, newPassword } = await req.json();
-
-    // 1. Find the user by reset token and validate the token expiry
+    if (
+      typeof token !== "string" ||
+      !/^[a-f0-9]{64}$/.test(token) ||
+      typeof newPassword !== "string" ||
+      newPassword.length < 8 ||
+      Buffer.byteLength(newPassword, "utf8") > 72
+    ) {
+      return Response.json(
+        {
+          message:
+            "Use a valid password link and a password of at least 8 characters (maximum 72 bytes).",
+        },
+        { status: 400 },
+      );
+    }
     const user = await client.fetch(
-      `*[_type == "admin" && resetToken == $token][0]`,
-      { token }
+      '*[_type == "admin" && resetTokenHash == $tokenHash && resetTokenExpiry > now()][0]{_id,_rev}',
+      { tokenHash: createHash("sha256").update(token).digest("hex") },
     );
-
-    // Separate checks for invalid token and expired token
-    if (!user) {
-      return NextResponse.json({ message: 'Invalid token' }, { status: 400 });
-    }
-
-    if (user.resetTokenExpiry <= new Date().toISOString()) {
-      return NextResponse.json({ message: 'Expired token' }, { status: 400 });
-    }
-
-    // 2. Hash the new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-
-    // 3. Update the user's password, set isVerified to true, and clear the reset token
+    if (!user)
+      return Response.json(
+        {
+          message:
+            "Invalid or expired password link. Please request a new one.",
+        },
+        { status: 400 },
+      );
+    const password = await bcrypt.hash(newPassword, 10);
+    stage = "password_save";
     await client
       .patch(user._id)
-      .set({ password: hashedPassword, isVerified: true })
-      .unset(['resetToken', 'resetTokenExpiry'])
+      .ifRevisionId(user._rev)
+      .set({ password, isVerified: true })
+      .unset(["resetToken", "resetTokenHash", "resetTokenExpiry"])
       .commit();
-
-    return NextResponse.json({ message: 'Password reset successful' }, { status: 200 });
+    return Response.json({
+      message: "Password reset successful. You can now sign in.",
+    });
   } catch (error) {
-    console.error('Error in password reset:', error);
-    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
+    if (error instanceof SyntaxError || error.statusCode === 409) {
+      return Response.json(
+        {
+          message:
+            "Invalid or expired password link. Please request a new one.",
+        },
+        { status: 400 },
+      );
+    }
+    console.error("Admin password change failed", {
+      stage,
+      status: Number(error.statusCode) || null,
+    });
+    return Response.json(
+      {
+        message: "We couldn't save your password. Please try again later.",
+        code: "ADMIN_PASSWORD_SAVE_UNAVAILABLE",
+      },
+      { status: 503 },
+    );
   }
 }

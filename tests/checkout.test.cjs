@@ -34,6 +34,8 @@ async function load(file, dependencies, extra = {}) {
       process: {
         env: {
           SANITY_API_TOKEN: "fixture",
+          NEXT_PRIVATE_EMAIL: "sender@example.test",
+          NEXT_PRIVATE_PASS: "fixture",
           NEXT_PRIVATE_PAYSTACK_SECRET_KEY: "fixture",
           NEXT_PRIVATE_JWT_SECRET_KEY: "fixture",
           NEXT_PUBLIC_BASE_URL: "https://example.test",
@@ -54,6 +56,15 @@ async function load(file, dependencies, extra = {}) {
 function database() {
   let revision = 0;
   let docs = new Map([
+    [
+      "admin-1",
+      {
+        _id: "admin-1",
+        _type: "admin",
+        email: "admin@example.test",
+        password: "old-admin-hash",
+      },
+    ],
     [
       "meal-1",
       {
@@ -163,6 +174,8 @@ function database() {
             .all()
             .find(
               (doc) =>
+                doc._type ===
+                  (query.includes('_type == "admin"') ? "admin" : "customer") &&
                 doc.resetTokenHash === params.tokenHash &&
                 Date.parse(doc.resetTokenExpiry) > Date.now(),
             ) || null
@@ -175,6 +188,16 @@ function database() {
               (doc) =>
                 doc._type === "transaction" &&
                 doc.transactionRef === params.reference,
+            ) || null
+        );
+      if (query.includes('_type == "admin"'))
+        return (
+          db
+            .all()
+            .find(
+              (doc) =>
+                doc._type === "admin" &&
+                doc.email.toLowerCase() === params.email,
             ) || null
         );
       throw new Error(`Unexpected query: ${query}`);
@@ -796,6 +819,167 @@ test("cart survives failed/cancelled payments and only matching verified purchas
     () => (cleared += 1),
   );
   assert.equal(cleared, 1);
+});
+
+test("admin reset normalizes email, hashes its emailed token, and permits only one password change", async () => {
+  const db = database();
+  let emailedToken;
+  let messages = 0;
+  const reset = await load("app/api/admin/password-reset/route.js", {
+    "node:crypto": crypto,
+    "@/utils/lib/sendResetMail": async (email, token) => {
+      assert.equal(email, "admin@example.test");
+      emailedToken = token;
+      messages += 1;
+    },
+    "@/utils/sanity/client": { client: db },
+  });
+  const response = await reset.POST({
+    json: async () => ({ email: " ADMIN@EXAMPLE.TEST " }),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(messages, 1);
+  const admin = await db.getDocument("admin-1");
+  assert.match(emailedToken, /^[a-f0-9]{64}$/);
+  assert.equal(
+    admin.resetTokenHash,
+    crypto.createHash("sha256").update(emailedToken).digest("hex"),
+  );
+  assert.equal(admin.resetToken, undefined);
+  assert.equal(admin.password, "old-admin-hash");
+  const missing = await reset.POST({
+    json: async () => ({ email: "unknown@example.test" }),
+  });
+  assert.equal(missing.status, 200);
+  assert.equal((await missing.json()).message, (await response.json()).message);
+  assert.equal(messages, 1);
+  const change = await load("app/api/admin/password-change/route.js", {
+    "node:crypto": crypto,
+    bcryptjs: { hash: async () => "new-admin-hash" },
+    "@/utils/sanity/client": { client: db },
+  });
+  const request = {
+    json: async () => ({ token: emailedToken, newPassword: "new-password" }),
+  };
+  const responses = await Promise.all([
+    change.POST(request),
+    change.POST(request),
+  ]);
+  assert.deepEqual(responses.map((item) => item.status).sort(), [200, 400]);
+  const updated = await db.getDocument("admin-1");
+  assert.equal(updated.password, "new-admin-hash");
+  assert.equal(updated.isVerified, true);
+  assert.equal(updated.resetTokenHash, undefined);
+  assert.equal(updated.resetTokenExpiry, undefined);
+  assert.equal((await change.POST(request)).status, 400);
+  assert.equal(
+    (
+      await change.POST({
+        json: async () => ({ token: emailedToken, newPassword: "short" }),
+      })
+    ).status,
+    400,
+  );
+  await reset.POST({ json: async () => ({ email: "admin@example.test" }) });
+  await db
+    .patch("admin-1")
+    .set({ resetTokenExpiry: new Date(Date.now() - 1000).toISOString() })
+    .commit();
+  assert.equal((await change.POST(request)).status, 400);
+});
+
+test("admin reset checks configuration before writes and reports permission failures safely", async () => {
+  const db = database();
+  let messages = 0;
+  const logged = [];
+  const deps = {
+    "node:crypto": crypto,
+    "@/utils/lib/sendResetMail": async () => {
+      messages += 1;
+    },
+    "@/utils/sanity/client": { client: db },
+  };
+  const missing = await load("app/api/admin/password-reset/route.js", deps, {
+    process: { env: {} },
+    console: { error: (...args) => logged.push(args) },
+  });
+  const request = { json: async () => ({ email: "admin@example.test" }) };
+  assert.equal(
+    (await (await missing.POST(request)).json()).code,
+    "ADMIN_RESET_CONFIGURATION",
+  );
+  assert.equal((await db.getDocument("admin-1")).resetTokenHash, undefined);
+  const reset = await load("app/api/admin/password-reset/route.js", deps, {
+    console: { error: (...args) => logged.push(args) },
+  });
+  db.failAll = true;
+  db.failure = Object.assign(new Error("secret-fixture"), { statusCode: 403 });
+  const failed = await reset.POST(request);
+  assert.equal(failed.status, 503);
+  assert.equal((await failed.json()).code, "ADMIN_RESET_STORAGE_PERMISSIONS");
+  assert.equal(messages, 0);
+  assert.ok(JSON.stringify(logged).includes("reset_token_save"));
+  assert.equal(JSON.stringify(logged).includes("secret-fixture"), false);
+  assert.equal(JSON.stringify(logged).includes("admin@example.test"), false);
+});
+
+test("admin email authentication failure is distinct from storage failure and malformed input", async () => {
+  const db = database();
+  const logged = [];
+  const reset = await load(
+    "app/api/admin/password-reset/route.js",
+    {
+      "node:crypto": crypto,
+      "@/utils/lib/sendResetMail": async () => {
+        throw Object.assign(new Error("secret-fixture"), {
+          code: "EAUTH",
+          responseCode: 535,
+        });
+      },
+      "@/utils/sanity/client": { client: db },
+    },
+    { console: { error: (...args) => logged.push(args) } },
+  );
+  assert.equal(
+    (await reset.POST({ json: async () => ({ email: "invalid" }) })).status,
+    400,
+  );
+  const response = await reset.POST({
+    json: async () => ({ email: "admin@example.test" }),
+  });
+  assert.equal(response.status, 503);
+  assert.equal((await response.json()).code, "ADMIN_RESET_EMAIL_AUTH");
+  const serialized = JSON.stringify(logged);
+  assert.ok(serialized.includes("email_delivery"));
+  assert.ok(serialized.includes("535"));
+  assert.equal(serialized.includes("secret-fixture"), false);
+  assert.equal((await db.getDocument("admin-1")).password, "old-admin-hash");
+});
+
+test("admin reset mail uses the public reset route and bounded SMTP timeouts", async () => {
+  let options;
+  let message;
+  const mail = await load("utils/lib/sendResetMail.js", {
+    nodemailer: {
+      createTransport: (config) => {
+        options = config;
+        return {
+          sendMail: async (data) => {
+            message = data;
+            return { accepted: [data.to] };
+          },
+        };
+      },
+    },
+  });
+  await mail.default("admin@example.test", "a".repeat(64));
+  assert.equal(options.socketTimeout, 15000);
+  assert.equal(options.connectionTimeout, 10000);
+  assert.equal(options.debug, false);
+  assert.ok(
+    message.html.includes("https://example.test/auth/reset-password?token="),
+  );
+  assert.equal(message.from, "sender@example.test");
 });
 
 test("Paystack initialization uses kobo, NGN and callback URL; verification errors propagate", async () => {

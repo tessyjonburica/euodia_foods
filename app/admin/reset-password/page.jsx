@@ -29,7 +29,7 @@ export default function ResetPassword() {
         setSuccess('Password reset successful! Redirecting to login...');
         toast.success('Password reset successful! Redirecting to login...');
         setTimeout(() => {
-          router.push('/auth/admin/login');
+          router.push('/auth/login');
         }, 3000);
       } else {
         const data = await res.json();

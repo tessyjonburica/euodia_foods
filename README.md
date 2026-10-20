@@ -36,6 +36,8 @@ See [PROJECT_REVIEW.md](PROJECT_REVIEW.md) for remaining defects and validation 
 See [CHECKOUT_DEPLOYMENT.md](CHECKOUT_DEPLOYMENT.md) for guest checkout, payment
 webhook configuration, and account activation. Run `npm run test:checkout` before
 deploying checkout changes.
+See [PASSWORD_RESET_NOTES.md](PASSWORD_RESET_NOTES.md) for admin password recovery
+configuration, error references, and the requirement to request fresh reset links.
 
 ## Deployment runtime
 

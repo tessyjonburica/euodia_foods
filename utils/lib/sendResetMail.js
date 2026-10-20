@@ -3,13 +3,21 @@ import nodemailer from 'nodemailer';
 export default async function sendResetEmail(to, token) {
   const transporter = nodemailer.createTransport({
     service: 'gmail', // or your preferred email service
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
+    logger: false,
+    debug: false,
     auth: {
       user: process.env.NEXT_PRIVATE_EMAIL,
       pass: process.env.NEXT_PRIVATE_PASS,
     },
   });
 
-  const resetLink = `${process.env.NEXT_PUBLIC_BASE_URL}/auth/reset-password?token=${token}`;
+  const resetUrl = new URL('/auth/reset-password', process.env.NEXT_PUBLIC_BASE_URL);
+  if (!['http:', 'https:'].includes(resetUrl.protocol)) throw new Error('Invalid password reset base URL');
+  resetUrl.searchParams.set('token', token);
+  const resetLink = resetUrl.href;
 
   const mailOptions = {
     from: process.env.NEXT_PRIVATE_EMAIL,
