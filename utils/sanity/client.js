@@ -11,8 +11,9 @@ export const client = createClient({
 });
 
 export const getUserByEmail = async (email) => {
-  const query = '*[_type == "customer" && email == $email][0]';
-  const params = { email };
+  // Prefer an account over any guest records sharing the email address.
+  const query = '*[_type == "customer" && lower(email) == $email] | order(defined(password) desc, _createdAt asc)[0]';
+  const params = { email: email.trim().toLowerCase() };
   try {
     const user = await client.fetch(query, params);
     return user;

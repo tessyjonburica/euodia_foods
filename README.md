@@ -31,6 +31,9 @@ Provision the first admin through a trusted Sanity/server workflow;
 `/api/admin/signup` now requires an existing admin token.
 
 See [PROJECT_REVIEW.md](PROJECT_REVIEW.md) for remaining defects and validation results.
+See [CHECKOUT_DEPLOYMENT.md](CHECKOUT_DEPLOYMENT.md) for guest checkout, payment
+webhook configuration, and account activation. Run `npm run test:checkout` before
+deploying checkout changes.
 
 ## Deployment runtime
 

@@ -14,7 +14,7 @@ export default async function sendResetMailToUser(to, token) {
 const mailOptions = {
     from: process.env.NEXT_PRIVATE_EMAIL,
     to,
-    subject: 'Password Reset',
+    subject: 'Set or reset your Euodia password',
     html: `
     <div style="font-family: Arial, sans-serif; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #ddd; border-radius: 10px;">
       <div style="text-align: center; margin-bottom: 20px;">
@@ -22,14 +22,14 @@ const mailOptions = {
       </div>
 
       <div style="padding: 20px; background-color: #f9f9f9; border-radius: 10px;">
-        <h2 style="color: #333;">Password Reset Request</h2>
+        <h2 style="color: #333;">Set or Reset Your Password</h2>
         <p style="font-size: 16px;">Hi there,</p>
         <p style="font-size: 16px;">
-          You requested to reset your password. Click the button below to reset it. This link is valid for the next 60 minutes.
+          Click the button below to set or reset your password. If you ordered as a guest, this activates your account. This link is valid for the next 60 minutes.
         </p>
         <div style="text-align: center; margin: 20px 0;">
           <a href="${resetLink}" style="background-color: #28a745; color: white; padding: 15px 25px; text-decoration: none; border-radius: 5px; font-size: 16px;">
-            Reset Password
+            Set Password
           </a>
         </div>
         <p style="font-size: 16px;">

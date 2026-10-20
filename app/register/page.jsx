@@ -9,6 +9,7 @@ import axios from "axios";
 import { useRouter } from "next/navigation";
 import { handleGenericError } from "@/utils/errorHandler";
 import useCookies from "@/hooks/useCookies";
+import Link from "next/link";
 
 import { toast } from "react-toastify";
 
@@ -112,6 +113,9 @@ export default function Signup() {
         >
           {loading ? 'Creating account...' : 'Create an account'}
         </button>
+        <p className="text-center mt-4">
+          Ordered as a guest? <Link href="/forgot-password" className="text-green-700 underline">Set or reset password</Link>
+        </p>
         <p className="text-center mt-4">
           Already have an account?{" "}
           <a href="/login" className="text-green-500">

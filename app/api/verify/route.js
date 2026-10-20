@@ -1,25 +1,29 @@
-import { verifyPaystackPayment } from "@/utils/lib/verify";
-import { updateTransactionStatus } from "@/utils/sanity/client";
+import { finalizePayment } from "@/utils/lib/finalizePayment";
+import { CheckoutError } from "@/utils/lib/checkout";
 
 export const dynamic = "force-dynamic";
 
-export const GET = async (req) => {
+export async function GET(req) {
   try {
-    const { searchParams } = new URL(req.url);
-    const trxref = searchParams.get('trxref');
-
-    const isPaymentVerified = await verifyPaystackPayment(trxref);
-    const newStatus = isPaymentVerified ? 'success' : 'failure';
-
-    await updateTransactionStatus(trxref, newStatus);
-
-    if (!isPaymentVerified) {
-      return new Response(JSON.stringify({ error: 'Payment verification failed' }), { status: 400 });
-    }
-
-    return new Response(JSON.stringify({ success: true, message: "Payment verified" }), { status: 200 });
+    const params = new URL(req.url).searchParams;
+    const result = await finalizePayment(
+      params.get("trxref") || params.get("reference"),
+    );
+    return Response.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
-    console.error(error);
-    return new Response(JSON.stringify({ error: error.message }), { status: 500 });
+    if (error instanceof CheckoutError) {
+      return Response.json(
+        { message: error.message },
+        { status: error.status },
+      );
+    }
+    console.error("Payment verification unavailable:", error.name);
+    return Response.json(
+      {
+        message:
+          "We couldn't confirm your payment yet. Please retry verification or contact support.",
+      },
+      { status: 503 },
+    );
   }
-};
+}

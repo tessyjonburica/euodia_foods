@@ -19,7 +19,7 @@ export  async function POST(req) {
       const { name, email, password } = res;
       if (typeof name !== 'string' || !name.trim() ||
           typeof email !== 'string' || !email.trim() ||
-          typeof password !== 'string' || password.length < 8) {
+          typeof password !== 'string' || password.length < 8 || Buffer.byteLength(password, 'utf8') > 72) {
         return Response.json({ message: 'Name, email, and a password of at least 8 characters are required.' }, { status: 400 });
       }
       if (!process.env.NEXT_PRIVATE_JWT_SECRET_KEY) {
@@ -30,6 +30,12 @@ export  async function POST(req) {
       const existingUser = await getUserByEmail(formattedEmail);
     
       if (existingUser) {
+        if (!existingUser.password) {
+          return Response.json({
+            code: 'GUEST_ACCOUNT',
+            message: 'You previously checked out as a guest. Use Set or reset password to verify your email and activate your account.',
+          }, { status: 409 });
+        }
         return new Response(JSON.stringify({ message: 'User with this email already exists' }), {
             status: 409,
             headers: { 'Content-Type': 'application/json' }
@@ -43,6 +49,7 @@ export  async function POST(req) {
         email: formattedEmail,
         name,
         password: hashedPassword,
+        isAnonymous: false,
       };
       const newUser = await createUser(user);
       if (!newUser?._id || newUser.error) {

@@ -1,35 +1,43 @@
-import sendResetMailToUser from '@/utils/lib/sendResetMailToUser';
-import { client } from '@/utils/sanity/client';
-import { NextResponse } from 'next/server';
-import { v4 as uuidv4 } from 'uuid';
+import { createHash, randomBytes } from "node:crypto";
+import sendResetMailToUser from "@/utils/lib/sendResetMailToUser";
+import { client, getUserByEmail } from "@/utils/sanity/client";
 
 export async function POST(req) {
   try {
     const { email } = await req.json();
-const formattedEmail = email.toLowerCase();
-    // 1. Find the user by email
-    const user = await client.fetch(`*[_type == "customer" && email == $email][0]`, { email: formattedEmail });
-
-    if (!user) {
-      return NextResponse.json({ message: 'User with this email does not exist.' }, { status: 404 });
+    if (
+      typeof email !== "string" ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+    ) {
+      return Response.json(
+        { message: "Please enter a valid email address." },
+        { status: 400 },
+      );
     }
-
-    // 2. Generate a reset token and expiry date
-    const resetToken = uuidv4();
-    const resetTokenExpiry = new Date(Date.now() + 3600000); // 1 hour from now
-
-    // 3. Update the user with the reset token and expiry date
-    await client
-      .patch(user._id)
-      .set({ resetToken, resetTokenExpiry })
-      .commit();
-
-    // 4. Send the reset email to user
-    await sendResetMailToUser(user.email, resetToken);
-
-    return NextResponse.json({ message: 'Password reset link sent' }, { status: 200 });
+    // Prefer the registered account when multiple guest purchases share an email.
+    const user = await getUserByEmail(email.trim().toLowerCase());
+    if (user) {
+      const token = randomBytes(32).toString("hex");
+      await client
+        .patch(user._id)
+        .set({
+          resetTokenHash: createHash("sha256").update(token).digest("hex"),
+          resetTokenExpiry: new Date(Date.now() + 3600000).toISOString(),
+        })
+        .unset(["resetToken"])
+        .commit();
+      await sendResetMailToUser(user.email, token);
+    }
+    return Response.json({
+      message: "If we have this email, a password link has been sent.",
+    });
   } catch (error) {
-    console.error('Error in password reset request:', error);
-    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
+    if (error instanceof SyntaxError)
+      return Response.json({ message: "Invalid request." }, { status: 400 });
+    console.error("Password link request failed:", error.name);
+    return Response.json(
+      { message: "We couldn't send a password link. Please try again later." },
+      { status: 503 },
+    );
   }
 }

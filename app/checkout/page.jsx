@@ -1,24 +1,24 @@
 "use client";
 import HomeLayout from "@/components/layout/HomeLayout";
-import { clearCart } from "@/store/reducers/cartReducer";
-import { client } from '@/utils/sanity/client';
-import useCurrencyFormatter from '@/hooks/useCurrencyFormatter';
+import { client } from "@/utils/sanity/client";
+import useCurrencyFormatter from "@/hooks/useCurrencyFormatter";
 import { handleGenericError } from "@/utils/errorHandler";
 import axios from "axios";
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
-import { useSelector, useDispatch } from "react-redux";
+import { useSelector } from "react-redux";
 import { toast } from "react-toastify";
 import { getCookie } from "@/utils/getCookie";
 import LoadingScreen from "@/components/reusables/LoadingScreen";
 import { useRouter } from "next/navigation"; // Import useRouter for redirection
+import { getCheckoutAttempt, rememberPayment } from "@/utils/checkoutSession";
 
 const Checkout = () => {
   const { cartItems } = useSelector((state) => state.cart);
   const formatCurrency = useCurrencyFormatter();
   const [serviceFees, setServiceFees] = useState([]);
   const [selectedServiceFee, setSelectedServiceFee] = useState(0);
-  const dispatch = useDispatch();
+  const submitting = useRef(false);
   const [loading, setLoading] = useState(false);
   const router = useRouter(); // Initialize the router
 
@@ -32,7 +32,7 @@ const Checkout = () => {
   // Redirect to /menu if cart is empty
   useEffect(() => {
     if (cartItems.length === 0) {
-      router.push('/menu'); // Redirect to /menu if the cart is empty
+      router.push("/menu"); // Redirect to /menu if the cart is empty
     }
   }, [cartItems, router]);
 
@@ -43,7 +43,7 @@ const Checkout = () => {
     // Update the service fee based on the selected location
     if (selectedLocation) {
       const selectedFee = serviceFees.find(
-        (fee) => fee._id === selectedLocation
+        (fee) => fee._id === selectedLocation,
       );
       setSelectedServiceFee(selectedFee ? selectedFee.fee : 0);
     } else {
@@ -77,47 +77,36 @@ const Checkout = () => {
   const id = getCookie("euodia_user");
 
   const handleCheckout = async (data) => {
+    if (submitting.current) return;
+    submitting.current = true;
     try {
-      if (data.firstName !== "") {
-        setLoading(true);
+      setLoading(true);
+      const orderData = {
+        ...data,
+        serviceFee: data.serviceFee,
+        cartItems: cartItems.map(({ _id, quantity }) => ({ _id, quantity })),
+      };
+      const attempt = await getCheckoutAttempt(orderData, token ? id : null);
+      orderData.idempotencyKey = attempt.key;
 
-        const userId = id;
-        const orderData = {
-          ...data,
-          serviceFee: {
-            _type: "reference",
-            _ref: data.serviceFee,
-          },
-          cartItems,
-          userId,
-          amount: Math.round(calculateTotal()),
-        };
-
-        const config = token
-          ? {
+      const config = token
+        ? {
             headers: {
               Authorization: `Bearer ${token}`,
             },
           }
-          : {};
+        : {};
 
-        await axios.post("/api/order", orderData, config).then((res) => {
-          setLoading(false);
-          dispatch(clearCart());
-          toast.success("order placed", {
-            position: "top-right",
-            duration: 3000,
-          });
-          const paymentLink =
-            res?.data?.paymentResponse?.data?.authorization_url;
-
-          if (paymentLink) {
-            window.location.href = paymentLink;
-          }
-        });
-      } else {
-        toast.error("Please add an address to proceed with checkout");
+      const res = await axios.post("/api/order", orderData, config);
+      const payment = res.data?.paymentResponse?.data;
+      if (!payment?.authorization_url || !payment.reference) {
+        throw new Error(
+          "Payment could not be started. Your cart is saved. Please try again.",
+        );
       }
+      rememberPayment(attempt, payment.reference);
+      // Keep the cart and submission lock until navigation/payment completes.
+      window.location.assign(payment.authorization_url);
     } catch (error) {
       const errMsg = handleGenericError(error);
       toast.error(errMsg, {
@@ -125,7 +114,7 @@ const Checkout = () => {
         duration: 3000,
       });
       setLoading(false);
-      console.error("Error handling checkout:", error);
+      submitting.current = false;
     }
   };
 
@@ -137,6 +126,9 @@ const Checkout = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <h2 className="text-2xl font-bold mb-6">Delivery Details</h2>
+                <p className="mb-5 text-sm text-gray-600">
+                  You can order as a guest. No account or login is required.
+                </p>
                 <form
                   onSubmit={handleSubmit(handleCheckout)}
                   className="space-y-4"
@@ -157,8 +149,8 @@ const Checkout = () => {
                       })}
                       className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
                     />
-                    {errors.firstName && (
-                      <p className="text-red-600">{errors.firstName.message}</p>
+                    {errors.fullName && (
+                      <p className="text-red-600">{errors.fullName.message}</p>
                     )}
                   </div>
 
@@ -220,7 +212,7 @@ const Checkout = () => {
                     )}
                   </div>
 
-<div className="mb-4">
+                  <div className="mb-4">
                     <label
                       className="block text-sm font-medium text-gray-700"
                       htmlFor="phoneNumber"
@@ -242,7 +234,7 @@ const Checkout = () => {
                     )}
                   </div>
 
-<div className="mb-4">
+                  <div className="mb-4">
                     <label
                       className="block text-sm font-medium text-gray-700"
                       htmlFor="email"
@@ -275,7 +267,9 @@ const Checkout = () => {
                       })}
                       className="mt-1 block w-full p-2 border border-gray-300 rounded-md"
                     >
-                      <option value="">Select your closest Delivery area</option>
+                      <option value="">
+                        Select your closest Delivery area
+                      </option>
                       {serviceFees.map((fee) => (
                         <option key={fee._id} value={fee._id}>
                           {fee.location} - {formatCurrency(fee.fee)}
@@ -283,16 +277,19 @@ const Checkout = () => {
                       ))}
                     </select>
                     {errors.serviceFee && (
-                      <p className="text-red-600">{errors.serviceFee.message}</p>
+                      <p className="text-red-600">
+                        {errors.serviceFee.message}
+                      </p>
                     )}
                   </div>
 
                   <div className="text-center">
                     <button
                       type="submit"
+                      disabled={loading}
                       className="w-full py-2  text-white bg-green-600 rounded-md hover:bg-green-700"
                     >
-                      Place Order
+                      Continue to payment
                     </button>
                   </div>
                 </form>
@@ -340,8 +337,7 @@ const Checkout = () => {
 
       {loading && <LoadingScreen />}
     </HomeLayout>
-
-);
+  );
 };
 
 export default Checkout;

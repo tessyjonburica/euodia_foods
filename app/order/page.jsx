@@ -119,7 +119,7 @@ export default function OrdersPage({ searchParams = {} }) {
         && (_id == $orderId || transactionRef == $reference)
         && customer._ref == $userId][0] {
           _id, total, status, transactionRef, name, email, phone,
-          streetAddress, apartment, townCity, notes,
+          streetAddress, apartment, townCity, notes, lineItems,
           products[]->{_id, title, "imageUrl": image.asset->url}
         }`,
         {

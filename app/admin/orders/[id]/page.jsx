@@ -61,6 +61,9 @@ export default function Page() {
         streetAddress,
         apartment,
         townCity,
+        lineItems,
+        deliveryFee,
+        paymentStatus,
         products[]->{
           _id,
           title,
@@ -200,7 +203,7 @@ export default function Page() {
             content={
               <div className="text-gray-700">
                 <p>
-                  <span className="font-semibold">Shipping Fee:</span> {order.serviceFee?.fee}
+                  <span className="font-semibold">Shipping Fee:</span> {order.deliveryFee ?? order.serviceFee?.fee}
                 </p>
                 <p>
                   <span className="font-semibold">Order ID:</span> {order.transactionRef}
@@ -248,6 +251,22 @@ export default function Page() {
           />
         </div>
 
+        <div className="mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
+          {order.lineItems?.length > 0 && (
+            <section className="w-full rounded-lg border border-gray-200 bg-white p-4">
+              <h2 className="mb-3 font-semibold">Purchased meals</h2>
+              <p className="mb-3 text-sm">Payment: {order.paymentStatus || "pending"}</p>
+              <ul className="space-y-3">
+                {order.lineItems.map((item) => (
+                  <li key={item._key} className="flex flex-wrap justify-between gap-2 text-sm">
+                    <span>{item.title} — {item.quantity} × {formatCurrency(item.unitPrice)}</span>
+                    <span>{formatCurrency(item.lineTotal)}</span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+        </div>
         <div className="mt-8 flex flex-col md:flex-row items-center justify-between gap-4">
           <h2 className="text-lg font-semibold text-gray-800">
             Update Order Status

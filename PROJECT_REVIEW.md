@@ -58,7 +58,8 @@ compare paid amount/currency to the order and only updates the transaction, not 
 completion. There is no webhook handler or idempotent finalization. Verification network
 errors become `false` and may mark transactions failed. Checkout clears the cart before
 payment completes. The delivery fee reference is wrapped in checkout and wrapped again
-in the order API, producing an invalid nested `_ref`.
+in the order API. The guest-checkout follow-up confirmed that `createOrder` unwraps
+the outer reference, so the current checkout payload reaches storage as a valid reference.
 
 ### High: admin statistics endpoint lacks authorization
 
@@ -198,3 +199,27 @@ email, and end-to-end payment behavior cannot be verified in this checkout.
   public pages, 19 login JS/CSS assets, manifest/icons, logo/meal media, dishes
   (45 items), and category API checks passed. Auth validation returned expected
   400/401/403 responses. No live account, payment, or email mutations were performed.
+
+## Guest checkout follow-up — October 20, 2026
+
+The active checkout implementation now uses server catalogue prices, validated
+quantities/delivery details, and verified session identity. Guest purchases create
+separate customer records rather than selecting registered accounts by email.
+Pending guest/order/transaction creation is atomic; retries retain one order and
+payment reference. New purchases retain quantity and price snapshots.
+
+Payment verification now checks amount, currency, reference, and successful status.
+A revision-guarded transaction updates payment state and customer accounting once,
+shared by the return page and signed Paystack webhook. Cart clearing occurs only
+after successful verification. Legacy spending figures are not automatically repaired.
+
+Guest signup directs the customer to the emailed Set or reset password flow.
+Recovery prefers a registered account over guest records; token hashes, expiry,
+and revision guards protect account activation. Old password links must be requested
+again. No guest records or historical orders are merged automatically.
+
+The earlier checkout findings describe the previous implementation. See
+[CHECKOUT_DEPLOYMENT.md](CHECKOUT_DEPLOYMENT.md) for configuration and limits.
+Fourteen isolated regression tests passed, along with lint. No live payments,
+emails, or remote customer mutations were performed. Live integration and visual
+browser checks still require the configured preview/test environment.

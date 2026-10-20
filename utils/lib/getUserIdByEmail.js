@@ -2,7 +2,7 @@ import { client } from "../sanity/client";
 
 export async function getUserIdByEmail(email) {
   try {
-    const query = `*[_type == "customer" && email == $email][0] {
+    const query = `*[_type == "customer" && lower(email) == $email && defined(password) && password != ""][0] {
       _id,
       email,
       password // Ensure you include password if stored

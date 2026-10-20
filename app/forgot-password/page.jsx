@@ -47,9 +47,9 @@ export default function Page() {
         onSubmit={handleSubmit}
         className="bg-white p-10 shadow-md flex flex-col gap-4 rounded-lg w-full max-w-sm"
       >
-        <h2 className="text-3xl text-center text-accent font-bold">Reset Your Password</h2>
+        <h2 className="text-3xl text-center text-accent font-bold">Set or Reset Your Password</h2>
         <p className="text-center text-gray-700 mb-4">
-          Enter your email address and we&apos;ll send you a link to reset your password.
+          Enter your email address and we&apos;ll send you a link to set a password. If you ordered as a guest, this also activates your account.
         </p>
         <InputComponent
           label="Email"

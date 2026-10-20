@@ -43,9 +43,12 @@ export default function OrderDetailsModal({ order, onClose }) {
   }, [onClose, order]);
 
   if (!order) return null;
-  const products = Array.isArray(order.products)
-    ? order.products.filter(Boolean)
-    : [];
+  const products =
+    Array.isArray(order.lineItems) && order.lineItems.length
+      ? order.lineItems.filter(Boolean)
+      : Array.isArray(order.products)
+        ? order.products.filter(Boolean)
+        : [];
 
   return (
     <div
@@ -151,6 +154,12 @@ export default function OrderDetailsModal({ order, onClose }) {
                     />
                     <p className="min-w-0 break-words text-[13px] font-medium leading-5 text-slate-700">
                       {product.title || "Meal details unavailable"}
+                      {Number.isInteger(product.quantity) && (
+                        <span className="mt-1 block text-[12px] font-normal text-slate-500">
+                          {product.quantity} ×{" "}
+                          {formatOrderAmount(product.unitPrice)}
+                        </span>
+                      )}
                     </p>
                   </li>
                 ))}
