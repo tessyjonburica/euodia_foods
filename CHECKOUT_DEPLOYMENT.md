@@ -101,3 +101,18 @@ malformed checkout/account requests and missing payment references returned HTTP
 Read-only Sanity checks accepted the new queries with nonexistent fixture IDs.
 The existing statistics query still logs an undefined sum function during builds.
 No real payments, emails, or database mutations were executed.
+
+## Delivery price compatibility follow-up — October 20, 2026
+
+Read-only inspection found 45 numeric dish prices and 100 delivery fees stored as
+numeric strings. The original checkout guard incorrectly rejected the delivery
+strings. Checkout now normalizes valid decimal text from server catalogue data,
+while rejecting empty, negative, nonfinite, malformed, boolean, and unsafe values.
+Admin delivery-fee create/update handlers normalize values before saving; the form
+submits numeric fees. No existing catalogue documents were changed.
+
+The regression suite now has 17 passing tests, including a 3000-naira meal plus
+225-naira VAT and a text-stored 2500-naira delivery fee: total 5725 naira. All 45
+published meal prices and 100 delivery fees passed read-only validation with the
+updated parser. Invalid prices still fail before payment initialization or order
+writes. The checkout summary also falls back to the meal title when name is absent.

@@ -1,6 +1,7 @@
 import { isAdmin } from "@/utils/lib/auth";
 import { client } from "@/utils/sanity/client";
 import { NextResponse } from "next/server";
+import { parseNairaPrice } from "@/utils/money";
 
 export async function POST(req) {
   if (!isAdmin(req.headers)) {
@@ -12,6 +13,10 @@ export async function POST(req) {
 
   try {
     const { location, fee } = await req.json();
+    const numericFee = parseNairaPrice(fee);
+    if (numericFee === null) {
+      return NextResponse.json({ message: "Enter a valid delivery fee of zero or more." }, { status: 400 });
+    }
 
     // Check if the location name already exists
     const existingServiceFee = await client.fetch(
@@ -33,7 +38,7 @@ export async function POST(req) {
     const newServiceFee = await client.create({
       _type: "serviceFee",
       location,
-      fee,
+      fee: numericFee,
     });
 
     return NextResponse.json(newServiceFee);

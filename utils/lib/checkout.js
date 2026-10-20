@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { client } from "@/utils/sanity/client";
 import { initializePaystack, isPaystackUrl } from "@/utils/lib/paystack";
+import { parseNairaPrice } from "@/utils/money";
 
 export class CheckoutError extends Error {
   constructor(message, status = 400) {
@@ -25,13 +26,14 @@ function text(value, label, max = 250, required = true) {
 }
 
 function kobo(value) {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+  const price = parseNairaPrice(value);
+  if (price === null) {
     throw new CheckoutError(
       "An item or delivery fee has an invalid price. Please contact support.",
       409,
     );
   }
-  return Math.round(value * 100);
+  return Math.round(price * 100);
 }
 
 export function validateCheckout(body, userId) {

@@ -1,6 +1,7 @@
 import { isAdmin } from "@/utils/lib/auth";
 import { client } from "@/utils/sanity/client";
 import { NextResponse } from "next/server";
+import { parseNairaPrice } from "@/utils/money";
 
 // export async function PATCH(req, { params }) {
 //   if (!isAdmin(req.headers)) {
@@ -55,11 +56,15 @@ export async function PATCH(req, { params }) {
 
   try {
     const { location, fee } = await req.json();
+    const numericFee = parseNairaPrice(fee);
+    if (numericFee === null) {
+      return NextResponse.json({ message: "Enter a valid delivery fee of zero or more." }, { status: 400 });
+    }
 
     // Update the service fee
     const updatedServiceFee = await client
       .patch(id)
-      .set({ location, fee })
+      .set({ location, fee: numericFee })
       .commit();
 
     // Update the related location schema

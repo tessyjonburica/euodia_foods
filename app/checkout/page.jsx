@@ -302,7 +302,7 @@ const Checkout = () => {
                   {cartItems.map((item, index) => (
                     <div key={index} className="flex justify-between">
                       <div>
-                        <p className="text-sm font-medium">{item.name}</p>
+                        <p className="text-sm font-medium">{item.title || item.name || "Meal"}</p>
                         <p className="text-sm ">
                           {item.quantity} x {formatCurrency(item.price)}
                         </p>

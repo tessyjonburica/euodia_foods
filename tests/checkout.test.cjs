@@ -245,6 +245,7 @@ async function setup() {
     "node:crypto": crypto,
     "@/utils/sanity/client": { client: db },
     "@/utils/lib/paystack": gateway,
+    "@/utils/money": await load("utils/money.js", {}),
   });
   const payment = await load("utils/lib/finalizePayment.js", {
     "@/utils/sanity/client": { client: db },
@@ -273,6 +274,114 @@ test("guest checkout ignores submitted price/identity, stores snapshots, and ret
   await checkout.startCheckout(payload());
   assert.equal(calls(), 1);
   assert.equal(db.all().filter((doc) => doc._type === "order").length, 1);
+});
+
+test("guest checkout accepts legacy text fees and matches the displayed 5725 naira total", async () => {
+  const { db, gateway, checkout } = await setup();
+  await db.patch("fee-1").set({ fee: "2500" }).commit();
+  await db.patch("meal-1").set({ price: "3000" }).commit();
+  const result = await checkout.startCheckout({
+    ...payload(),
+    cartItems: [{ _id: "meal-1", quantity: 1 }],
+  });
+  assert.equal(result.order.total, 5725);
+  assert.equal(gateway.last.amount, 572500);
+  const order = db.all().find((doc) => doc._type === "order");
+  assert.equal(order.deliveryFee, 2500);
+  assert.equal(order.lineItems[0].unitPrice, 3000);
+});
+
+test("money normalization rejects invalid values instead of silently treating them as free", async () => {
+  const { parseNairaPrice } = await load("utils/money.js", {});
+  for (const value of [
+    null,
+    undefined,
+    true,
+    false,
+    "",
+    " ",
+    "2500x",
+    "1,500",
+    "0x10",
+    "1e3",
+    "-1",
+    -1,
+    NaN,
+    Infinity,
+    {},
+    [],
+    "10.123",
+    Number.MAX_SAFE_INTEGER,
+  ]) {
+    assert.equal(
+      parseNairaPrice(value),
+      null,
+      `Invalid money: ${String(value)}`,
+    );
+  }
+  assert.equal(parseNairaPrice(" 2500 "), 2500);
+  assert.equal(parseNairaPrice("0"), 0);
+  assert.equal(parseNairaPrice("10.50"), 10.5);
+  const { db, checkout, calls } = await setup();
+  await db.patch("fee-1").set({ fee: "not a price" }).commit();
+  await assert.rejects(
+    checkout.startCheckout(payload()),
+    (error) => error.status === 409,
+  );
+  assert.equal(calls(), 0);
+  assert.equal(
+    db.all().some((doc) => doc._type === "order"),
+    false,
+  );
+});
+
+test("admin fee create/update store numbers and reject invalid fees before writing", async () => {
+  const money = await load("utils/money.js", {});
+  let saved;
+  let writes = 0;
+  const db = {
+    fetch: async () => null,
+    create: async (doc) => {
+      writes += 1;
+      saved = doc;
+      return doc;
+    },
+    patch: () => ({
+      set(doc) {
+        saved = doc;
+        return this;
+      },
+      async commit() {
+        writes += 1;
+        return saved;
+      },
+    }),
+  };
+  const deps = {
+    "@/utils/money": money,
+    "@/utils/lib/auth": { isAdmin: () => true },
+    "@/utils/sanity/client": { client: db },
+    "next/server": { NextResponse: Response },
+  };
+  const create = await load("app/api/admin/servicefee/route.js", deps);
+  const update = await load("app/api/admin/servicefee/[id]/route.js", deps);
+  const request = (fee) => ({
+    headers: new Headers(),
+    json: async () => ({ location: "Fixture area", fee }),
+  });
+  assert.equal((await create.POST(request("2500"))).status, 200);
+  assert.equal(saved.fee, 2500);
+  assert.equal(
+    (await update.PATCH(request("0"), { params: { id: "fee-1" } })).status,
+    200,
+  );
+  assert.equal(saved.fee, 0);
+  assert.equal((await create.POST(request(""))).status, 400);
+  assert.equal(
+    (await update.PATCH(request("bad"), { params: { id: "fee-1" } })).status,
+    400,
+  );
+  assert.equal(writes, 2);
 });
 
 test("signed-in customer comes from verified session, never body userId", async () => {
