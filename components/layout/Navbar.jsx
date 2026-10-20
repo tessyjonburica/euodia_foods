@@ -69,7 +69,7 @@ const Navbar = () => {
             </Link>
             {euodia_token ? (
               <div className="relative z-50">
-                <button onClick={toggleDropdown} className="hover:text-green-800">
+                <button onClick={toggleDropdown} aria-label="Account menu" aria-expanded={isDropdownOpen} className="hover:text-green-800">
                   <FiUser className="h-5 w-5" />
                 </button>
                 {isDropdownOpen && (
@@ -107,7 +107,7 @@ const Navbar = () => {
               )}
             </button>
           </Link>
-          <button onClick={toggleSidebar} className="ml-4">
+          <button onClick={toggleSidebar} aria-label={isOpen ? 'Close menu' : 'Open menu'} aria-expanded={isOpen} className="ml-4">
             {isOpen ? (
               <FiX className="h-6 w-6 text-green-600" />
             ) : (
@@ -131,10 +131,8 @@ const Navbar = () => {
             {euodia_token ? (
               <div className="relative w-full">
                 <button
-                  onClick={() => {
-                    toggleDropdown();
-                    toggleSidebar();
-                  }}
+                  onClick={toggleDropdown}
+                  aria-expanded={isDropdownOpen}
                   className="flex items-center justify-center text-green-600 border border-green-600 rounded-lg px-4 py-2 w-full hover:bg-green-600 hover:text-white"
                 >
                   <FiUser className="mr-2 h-5 w-5" />
@@ -142,7 +140,7 @@ const Navbar = () => {
                 </button>
                 {isDropdownOpen && (
                   <div className="absolute right-0 mt-2 w-full bg-white border opacity-100 border-gray-300 shadow-lg rounded-md py-2 z-10">
-                    <Link href="/orders" className="flex items-center px-4 py-2 text-gray-700 hover:bg-gray-100" onClick={toggleSidebar}>
+                    <Link href="/order" className="flex items-center px-4 py-2 text-gray-700 hover:bg-gray-100" onClick={toggleSidebar}>
                       <FiList className="mr-2" />
                       My Orders
                     </Link>
