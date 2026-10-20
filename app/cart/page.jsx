@@ -8,29 +8,12 @@ import { decrementQuantity, incrementQuantity, removeCartItem } from '@/store/re
 import useCurrencyFormatter from '@/hooks/useCurrencyFormatter';
 import { toast } from 'react-toastify';
 import { RiDeleteBinLine } from "react-icons/ri";
-import { getCookie } from '@/utils/getCookie';
-import { saveCartToSanity } from '@/utils/sanity/saveCartToSanity';
 
 const Cart = () => {
   const dispatch = useDispatch()
   const { cartItems } = useSelector(state => state.cart)
-  const userId = getCookie("euodia_user"); // Assuming user ID is stored in Redux
 
   const formatCurrency = useCurrencyFormatter()
-  useEffect(() => {
-    const saveCart = async () => {
-      if (cartItems.length > 0) {
-        try {
-          console.log(userId)
-          await saveCartToSanity(cartItems, userId);
-        } catch (error) {
-          console.error("Failed to save cart:", error);
-        }
-      }
-    };
-
-    saveCart();
-  }, [cartItems, userId]);
   useEffect(() => {
     const handleBeforeUnload = (event) => {
       if (cartItems.length > 0) {

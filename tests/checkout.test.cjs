@@ -33,6 +33,7 @@ async function load(file, dependencies, extra = {}) {
       console: { error() {}, log() {} },
       process: {
         env: {
+          SANITY_API_TOKEN: "fixture",
           NEXT_PRIVATE_PAYSTACK_SECRET_KEY: "fixture",
           NEXT_PRIVATE_JWT_SECRET_KEY: "fixture",
           NEXT_PUBLIC_BASE_URL: "https://example.test",
@@ -113,7 +114,7 @@ function database() {
   function commit(operations) {
     if (db.failCache && operations.some((op) => op.set?.authorizationUrl))
       throw new Error("Cache write failed");
-    if (db.failAll) throw new Error("Storage unavailable");
+    if (db.failAll) throw db.failure || new Error("Storage unavailable");
     const working = new Map(
       [...docs].map(([key, value]) => [key, clone(value)]),
     );
@@ -214,7 +215,7 @@ function payload() {
   };
 }
 
-async function setup() {
+async function setup(checkoutGlobals = {}) {
   const db = database();
   let calls = 0;
   const gateway = {
@@ -223,7 +224,8 @@ async function setup() {
       value.startsWith("https://checkout.paystack.com/"),
     async initializePaystack(email, amount, reference) {
       calls += 1;
-      if (gateway.fail) throw new Error("Gateway unavailable");
+      if (gateway.fail)
+        throw gateway.failure || new Error("Gateway unavailable");
       gateway.last = { email, amount, reference };
       return {
         reference,
@@ -241,12 +243,16 @@ async function setup() {
       };
     },
   };
-  const checkout = await load("utils/lib/checkout.js", {
-    "node:crypto": crypto,
-    "@/utils/sanity/client": { client: db },
-    "@/utils/lib/paystack": gateway,
-    "@/utils/money": await load("utils/money.js", {}),
-  });
+  const checkout = await load(
+    "utils/lib/checkout.js",
+    {
+      "node:crypto": crypto,
+      "@/utils/sanity/client": { client: db },
+      "@/utils/lib/paystack": gateway,
+      "@/utils/money": await load("utils/money.js", {}),
+    },
+    checkoutGlobals,
+  );
   const payment = await load("utils/lib/finalizePayment.js", {
     "@/utils/sanity/client": { client: db },
     "@/utils/lib/paystack": gateway,
@@ -577,6 +583,109 @@ test("checkout and verification routes return useful validation/retry errors", a
     (await verify.GET({ url: "https://example.test/api/verify" })).status,
     400,
   );
+});
+
+test("existing NEXT_SANITY_API_TOKEN works server-side and neither token reaches the browser client", async () => {
+  const configurations = [];
+  const dependencies = {
+    "@sanity/client": {
+      createClient: (config) => {
+        configurations.push(config);
+        return {};
+      },
+    },
+    "../lib/checkUser": { ensureUserExists: async () => {} },
+    uuid: { v4: () => "fixture" },
+  };
+  await load("utils/sanity/client.js", dependencies, {
+    process: { env: { NEXT_SANITY_API_TOKEN: "legacy-fixture" } },
+  });
+  assert.equal(configurations.at(-1).token, "legacy-fixture");
+  await load("utils/sanity/client.js", dependencies, {
+    process: {
+      env: {
+        SANITY_API_TOKEN: "canonical-fixture",
+        NEXT_SANITY_API_TOKEN: "legacy-fixture",
+      },
+    },
+  });
+  assert.equal(configurations.at(-1).token, "canonical-fixture");
+  await load("utils/sanity/client.js", dependencies, {
+    window: {},
+    process: {
+      env: {
+        SANITY_API_TOKEN: "canonical-fixture",
+        NEXT_SANITY_API_TOKEN: "legacy-fixture",
+      },
+    },
+  });
+  assert.equal(configurations.at(-1).token, undefined);
+});
+
+test("checkout accepts the existing Vercel token name and stops before writes when configuration is missing", async () => {
+  const base = {
+    NEXT_PRIVATE_PAYSTACK_SECRET_KEY: "fixture",
+    NEXT_PUBLIC_BASE_URL: "https://example.test",
+  };
+  const alias = await setup({
+    process: { env: { ...base, NEXT_SANITY_API_TOKEN: "fixture" } },
+  });
+  assert.equal((await alias.checkout.startCheckout(payload())).success, true);
+  for (const env of [
+    base,
+    {
+      ...base,
+      SANITY_API_TOKEN: "fixture",
+      NEXT_PRIVATE_PAYSTACK_SECRET_KEY: "",
+    },
+    {
+      ...base,
+      SANITY_API_TOKEN: "fixture",
+      NEXT_PUBLIC_BASE_URL: "invalid-url",
+    },
+  ]) {
+    const context = await setup({ process: { env } });
+    await assert.rejects(
+      context.checkout.startCheckout(payload()),
+      (error) =>
+        error.code === "CHECKOUT_CONFIGURATION" && error.status === 503,
+    );
+    assert.equal(context.calls(), 0);
+    assert.equal(
+      context.db.all().some((doc) => doc._type === "order"),
+      false,
+    );
+  }
+});
+
+test("permission and gateway failures have actionable codes without leaking SDK credentials or customer data", async () => {
+  const logged = [];
+  const { checkout, gateway, db } = await setup({
+    console: { error: (...args) => logged.push(args) },
+  });
+  db.failAll = true;
+  db.failure = Object.assign(new Error("sensitive-fixture-value"), {
+    statusCode: 403,
+    response: { headers: { Authorization: "sensitive-fixture-value" } },
+  });
+  await assert.rejects(
+    checkout.startCheckout(payload()),
+    (error) => error.code === "CHECKOUT_STORAGE_PERMISSIONS",
+  );
+  db.failAll = false;
+  gateway.fail = true;
+  gateway.failure = Object.assign(new Error("sensitive-fixture-value"), {
+    response: { status: 401, data: { message: "sensitive-fixture-value" } },
+  });
+  await assert.rejects(
+    checkout.startCheckout(payload()),
+    (error) => error.code === "CHECKOUT_PAYMENT_CONFIGURATION",
+  );
+  const serialized = JSON.stringify(logged);
+  assert.ok(serialized.includes("pending_order_creation"));
+  assert.ok(serialized.includes("payment_initialization"));
+  assert.equal(serialized.includes("sensitive-fixture-value"), false);
+  assert.equal(serialized.includes("guest@example.test"), false);
 });
 
 test("guest signup requires emailed activation rather than claiming purchases by password", async () => {

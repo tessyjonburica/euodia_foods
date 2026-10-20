@@ -20,7 +20,9 @@ Paystack test credentials for integration work.
 ## Environment
 
 See `.env.example`. `NEXT_PUBLIC_*` values are browser-visible.
-`SANITY_API_TOKEN` must stay server-only. Remove and rotate any previously deployed
+`SANITY_API_TOKEN` must stay server-only. Existing deployments using
+`NEXT_SANITY_API_TOKEN` are also supported; the canonical name takes precedence.
+Remove and rotate any previously deployed
 `NEXT_PUBLIC_SANITY_TOKEN`. Existing browser admin mutations need authenticated server
 routes and will not work with a server-only token. Review Sanity dataset visibility:
 customer passwords, reset tokens, addresses, and orders must not be publicly readable.

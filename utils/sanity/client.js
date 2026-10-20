@@ -7,7 +7,9 @@ export const client = createClient({
   dataset: process.env.NEXT_PUBLIC_SANITY_DATASET || 'main',
   apiVersion: '2024-03-11',
   useCdn: false,
-  token: typeof window === 'undefined' ? process.env.SANITY_API_TOKEN : undefined
+  token: typeof window === 'undefined'
+    ? (process.env.SANITY_API_TOKEN?.trim() || process.env.NEXT_SANITY_API_TOKEN?.trim())
+    : undefined
 });
 
 export const getUserByEmail = async (email) => {

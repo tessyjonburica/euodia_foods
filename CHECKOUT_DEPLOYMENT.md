@@ -35,8 +35,10 @@ business rules were not changed or evaluated for tax compliance.
 
 ## Required deployment configuration
 
-1. Set `SANITY_API_TOKEN` to a server-only token with mutation access to the intended
-   Sanity dataset. Keep project/dataset configuration consistent with the storefront.
+1. Set `SANITY_API_TOKEN` or the existing `NEXT_SANITY_API_TOKEN` to a server-only
+   token with mutation access to the intended Sanity dataset. Both names are supported;
+   `SANITY_API_TOKEN` takes precedence if both are populated. Keep project/dataset
+   configuration consistent with the storefront. Neither token is sent to the browser.
 2. Configure `NEXT_PRIVATE_PAYSTACK_SECRET_KEY`, `NEXT_PRIVATE_JWT_SECRET_KEY`,
    `NEXT_PRIVATE_EMAIL`, and `NEXT_PRIVATE_PASS`. Never commit their values.
 3. Set `NEXT_PUBLIC_BASE_URL` to the site's HTTPS origin. This controls the explicit
@@ -116,3 +118,24 @@ The regression suite now has 17 passing tests, including a 3000-naira meal plus
 published meal prices and 100 delivery fees passed read-only validation with the
 updated parser. Invalid prices still fail before payment initialization or order
 writes. The checkout summary also falls back to the meal title when name is absent.
+
+## Checkout credentials and cart follow-up — October 20, 2026
+
+The deployed Vercel variable was named NEXT_SANITY_API_TOKEN while the server read
+SANITY_API_TOKEN, leaving checkout mutations unauthenticated. Both server-only names
+are now accepted, with the canonical name taking precedence. Required configuration
+is checked before order/payment writes. Failures distinguish storage and gateway
+configuration/availability using response codes; logs contain only stage, service,
+and HTTP status, not raw SDK request objects, secrets, or customer details.
+
+The old browser cart-save effect and unused Sanity cart helper were removed.
+Redux Persist already keeps the cart in browser session storage; no browser write
+token is needed for cart changes. This removes the cart-save 403 without changing
+checkout's server-side order persistence.
+
+All 20 regression tests passed, including legacy token compatibility, browser-token
+exclusion, missing configuration before writes, and credential-safe diagnostics.
+The configured local Sanity token also passed a dry-run of the actual pending-order
+mutation, with no documents persisted. The local Paystack credential was not rejected
+on a read-only request for a nonexistent reference; no payment was initialized.
+These local checks do not establish the permissions or validity of Vercel's key values.

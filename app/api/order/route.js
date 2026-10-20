@@ -16,7 +16,7 @@ export async function POST(req) {
     }
     if (error instanceof CheckoutError) {
       return Response.json(
-        { message: error.message },
+        { message: error.message, ...(error.code ? { code: error.code } : {}) },
         { status: error.status },
       );
     }

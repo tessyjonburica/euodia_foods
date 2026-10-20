@@ -10,6 +10,58 @@ export class CheckoutError extends Error {
   }
 }
 
+function infrastructureError(error, stage, service) {
+  const status = Number(error.statusCode || error.response?.status) || null;
+  // Use an explicit allowlist. SDK/Axios errors can include credentials and PII.
+  console.error("Checkout dependency failed", { stage, service, status });
+  const storage = service === "storage";
+  const failure = new CheckoutError(
+    storage
+      ? "We couldn't save your order. Your cart is saved. Please contact support if this continues."
+      : "We couldn't connect to the payment service. Your cart is saved. Please try again shortly.",
+    503,
+  );
+  failure.code = storage
+    ? [401, 403].includes(status)
+      ? "CHECKOUT_STORAGE_PERMISSIONS"
+      : "CHECKOUT_STORAGE_UNAVAILABLE"
+    : [401, 403].includes(status)
+      ? "CHECKOUT_PAYMENT_CONFIGURATION"
+      : "CHECKOUT_PAYMENT_UNAVAILABLE";
+  return failure;
+}
+
+function checkConfiguration() {
+  const missing = [
+    "NEXT_PRIVATE_PAYSTACK_SECRET_KEY",
+    "NEXT_PUBLIC_BASE_URL",
+  ].filter((name) => !process.env[name]?.trim());
+  if (
+    !(
+      process.env.SANITY_API_TOKEN?.trim() ||
+      process.env.NEXT_SANITY_API_TOKEN?.trim()
+    )
+  ) {
+    missing.push("SANITY_API_TOKEN or NEXT_SANITY_API_TOKEN");
+  }
+  let validBaseUrl = false;
+  try {
+    validBaseUrl = ["http:", "https:"].includes(
+      new URL(process.env.NEXT_PUBLIC_BASE_URL).protocol,
+    );
+  } catch {
+    /* invalid configuration */
+  }
+  if (!missing.length && validBaseUrl) return;
+  console.error("Checkout configuration incomplete", { missing, validBaseUrl });
+  const error = new CheckoutError(
+    "Ordering is temporarily unavailable. Your cart is saved. Please contact support.",
+    503,
+  );
+  error.code = "CHECKOUT_CONFIGURATION";
+  throw error;
+}
+
 const hash = (value) => createHash("sha256").update(value).digest("hex");
 const reference = (id) => ({ _type: "reference", _ref: id });
 
@@ -229,18 +281,29 @@ function checkoutResponse(order, authorizationUrl) {
 
 export async function startCheckout(body, userId) {
   const input = validateCheckout(body, userId);
+  checkConfiguration();
   const digest = hash(input.key);
   const orderId = `order-${digest}`;
   const transactionId = `transaction-${digest}`;
   const paymentReference = `Euodia-${digest.slice(0, 32)}`;
-  let order = await client.getDocument(orderId);
-  if (!order)
-    order = await createPendingOrder(
-      input,
-      orderId,
-      transactionId,
-      paymentReference,
-    );
+  let order;
+  let storageStage = "order_lookup";
+  try {
+    order = await client.getDocument(orderId);
+    if (!order) {
+      storageStage = "pending_order_creation";
+      order = await createPendingOrder(
+        input,
+        orderId,
+        transactionId,
+        paymentReference,
+      );
+      if (!order) throw new Error("Pending order unavailable");
+    }
+  } catch (error) {
+    if (error instanceof CheckoutError) throw error;
+    throw infrastructureError(error, storageStage, "storage");
+  }
   if (order.checkoutFingerprint !== input.fingerprint) {
     throw new CheckoutError(
       "Checkout details changed. Please refresh and try again.",
@@ -277,7 +340,7 @@ export async function startCheckout(body, userId) {
         "Your payment is being prepared. Please try again in a moment.",
         409,
       );
-    throw error;
+    throw infrastructureError(error, "payment_lease", "storage");
   }
   let payment;
   try {
@@ -300,7 +363,7 @@ export async function startCheckout(body, userId) {
         409,
       );
     }
-    throw error;
+    throw infrastructureError(error, "payment_initialization", "payment");
   }
   try {
     await client
